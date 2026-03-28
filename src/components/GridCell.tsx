@@ -1,5 +1,35 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { Player } from '../types/game'
+
+const PARTICLE_OUTER_KEYS = [
+  'o0', 'o1', 'o2', 'o3', 'o4', 'o5', 'o6', 'o7', 'o8', 'o9', 'o10', 'o11', 'o12', 'o13', 'o14', 'o15',
+] as const
+const PARTICLE_INNER_KEYS = ['i0', 'i1', 'i2', 'i3', 'i4', 'i5', 'i6', 'i7'] as const
+
+function flashyDecoratedContent(content: ReactNode): ReactNode {
+  return (
+    <>
+      <span className="grid-cell__particles" aria-hidden>
+        {PARTICLE_OUTER_KEYS.map((key, i) => (
+          <span
+            key={key}
+            className="grid-cell__particle"
+            style={{ '--particle-i': i } as CSSProperties}
+          />
+        ))}
+        {PARTICLE_INNER_KEYS.map((key, i) => (
+          <span
+            key={key}
+            className="grid-cell__particle grid-cell__particle--inner"
+            style={{ '--particle-i': i } as CSSProperties}
+          />
+        ))}
+      </span>
+      <span className="grid-cell__spark-ring" aria-hidden />
+      <span className="grid-cell__body">{content}</span>
+    </>
+  )
+}
 
 type Props = {
   /** When missing, renders a vacant tile that still occupies its grid cell. */
@@ -33,6 +63,8 @@ export function GridCell({
       ? 'grid-cell grid-cell--vacant'
       : 'grid-cell'
 
+  const showFlashy = Boolean(player && !introHidden)
+
   const content = introHidden ? (
     <>
       <span className="grid-cell__name grid-cell__name--intro-hidden">?</span>
@@ -50,6 +82,8 @@ export function GridCell({
     </>
   ) : null
 
+  const cellInner = showFlashy ? flashyDecoratedContent(content) : content
+
   if (!interactive) {
     if (introHidden) {
       return (
@@ -66,7 +100,7 @@ export function GridCell({
           role="img"
           aria-label={`Tile ${slotIndex + 1}: ${player.name}, category ${player.currentCategory}`}
         >
-          {content}
+          {cellInner}
         </div>
       )
     }
@@ -91,7 +125,7 @@ export function GridCell({
       onClick={() => onActivate(slotIndex)}
       aria-label={ariaLabel}
     >
-      {content}
+      {cellInner}
     </button>
   )
 }
