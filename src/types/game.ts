@@ -5,6 +5,8 @@ export type Player = {
   name: string
   initialCategory: string
   currentCategory: string
+  /** Roster dropdown: which player’s initial was applied (stable when labels share the same text). */
+  categorySourcePlayerId?: PlayerId | null
   color: string
 }
 

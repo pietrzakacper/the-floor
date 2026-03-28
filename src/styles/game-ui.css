@@ -731,14 +731,9 @@
   font-size: 0.9rem;
 }
 
-.game__roster-cat {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  word-break: break-word;
-}
-
-.game__roster-select-wrap {
+.game__roster-field {
   grid-column: 2;
+  min-width: 0;
 }
 
 .game__roster-select {

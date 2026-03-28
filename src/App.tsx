@@ -20,7 +20,7 @@ function App() {
     gameConfig,
     assignment,
     assignPlayerToSlot,
-    setPlayerCategoryFromInitial,
+    setPlayerCategoryFromPlayer,
   } = useGameState()
 
   if (phase === 'game' && gameConfig) {
@@ -30,7 +30,7 @@ function App() {
         assignment={assignment}
         onBack={backToLobby}
         assignPlayerToSlot={assignPlayerToSlot}
-        setPlayerCategoryFromInitial={setPlayerCategoryFromInitial}
+        setPlayerCategoryFromPlayer={setPlayerCategoryFromPlayer}
       />
     )
   }

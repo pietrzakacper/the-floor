@@ -131,20 +131,25 @@ export function useGameState() {
     setAssignment((prev) => ({ ...prev, [slotIndex]: playerId }))
   }, [])
 
-  const setPlayerCategoryFromInitial = useCallback(
-    (playerId: PlayerId, sourceInitialCategory: string) => {
-      setGameConfig((c) => {
-        if (!c) return c
-        return {
-          ...c,
-          players: c.players.map((p) =>
-            p.id === playerId ? { ...p, currentCategory: sourceInitialCategory } : p,
-          ),
-        }
-      })
-    },
-    [],
-  )
+  const setPlayerCategoryFromPlayer = useCallback((playerId: PlayerId, sourcePlayerId: PlayerId) => {
+    setGameConfig((c) => {
+      if (!c) return c
+      const source = c.players.find((x) => x.id === sourcePlayerId)
+      if (!source) return c
+      return {
+        ...c,
+        players: c.players.map((p) =>
+          p.id === playerId
+            ? {
+                ...p,
+                currentCategory: source.initialCategory,
+                categorySourcePlayerId: sourcePlayerId,
+              }
+            : p,
+        ),
+      }
+    })
+  }, [])
 
   return {
     phase,
@@ -162,7 +167,7 @@ export function useGameState() {
     gameConfig,
     assignment,
     assignPlayerToSlot,
-    setPlayerCategoryFromInitial,
+    setPlayerCategoryFromPlayer,
     playerCount,
   }
 }

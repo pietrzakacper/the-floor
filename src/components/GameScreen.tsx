@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { CellAssignment, GameConfig, PlayerId } from '../types/game'
+import type { CellAssignment, GameConfig, Player, PlayerId } from '../types/game'
 import { useFitSquareCellSize } from '../hooks/useFitSquareCellSize'
 import { GridCell } from './GridCell'
 
@@ -9,7 +9,19 @@ type Props = {
   assignment: CellAssignment
   onBack: () => void
   assignPlayerToSlot: (slotIndex: number, playerId: PlayerId) => void
-  setPlayerCategoryFromInitial: (playerId: PlayerId, sourceInitialCategory: string) => void
+  setPlayerCategoryFromPlayer: (playerId: PlayerId, sourcePlayerId: PlayerId) => void
+}
+
+function rosterCategorySelectValue(p: Player, players: Player[]): PlayerId | '__current__' {
+  const sid = p.categorySourcePlayerId
+  if (sid) {
+    const src = players.find((x) => x.id === sid)
+    if (src && src.initialCategory === p.currentCategory) {
+      return sid
+    }
+  }
+  const matched = players.find((o) => o.initialCategory === p.currentCategory)
+  return matched?.id ?? '__current__'
 }
 
 export function GameScreen({
@@ -17,7 +29,7 @@ export function GameScreen({
   assignment,
   onBack,
   assignPlayerToSlot,
-  setPlayerCategoryFromInitial,
+  setPlayerCategoryFromPlayer,
 }: Props) {
   const { rows, cols, cellIndices, players } = config
   const [assignSlotIndex, setAssignSlotIndex] = useState<number | null>(null)
@@ -156,50 +168,53 @@ export function GameScreen({
         <aside className="game__roster" aria-label="Players on the board">
           <h2 className="game__roster-title">Players</h2>
           <p className="game__roster-hint">
-            Only players who occupy at least one tile are listed. Set category using another
-            player’s initial category.
+            Only players who occupy at least one tile are listed. Each category list includes
+            everyone’s initial category, including your own.
           </p>
           <ul className="game__roster-list">
-            {rosterPlayers.map((p) => (
-              <li key={p.id} className="game__roster-row">
-                <span
-                  className="game__roster-swatch"
-                  style={{
-                    background: p.color,
-                    boxShadow: `0 0 10px ${p.color}`,
-                  }}
-                  aria-hidden
-                />
-                <div className="game__roster-meta">
-                  <span className="game__roster-name">{p.name}</span>
-                  <span className="game__roster-cat">{p.currentCategory}</span>
-                </div>
-                <label className="game__roster-select-wrap">
-                  <span className="visually-hidden">Copy initial category from</span>
-                  <select
-                    className="game__roster-select"
-                    value=""
-                    aria-label={`Change category for ${p.name}`}
-                    onChange={(e) => {
-                      const oid = e.target.value as PlayerId
-                      if (!oid) return
-                      const other = rosterPlayers.find((x) => x.id === oid)
-                      if (other) setPlayerCategoryFromInitial(p.id, other.initialCategory)
-                      e.target.value = ''
+            {rosterPlayers.map((p) => {
+              const selectValue = rosterCategorySelectValue(p, players)
+              const showCurrentOption = selectValue === '__current__'
+              return (
+                <li key={p.id} className="game__roster-row">
+                  <span
+                    className="game__roster-swatch"
+                    style={{
+                      background: p.color,
+                      boxShadow: `0 0 10px ${p.color}`,
                     }}
-                  >
-                    <option value="">Copy from…</option>
-                    {rosterPlayers
-                      .filter((o) => o.id !== p.id)
-                      .map((o) => (
+                    aria-hidden
+                  />
+                  <div className="game__roster-meta">
+                    <span className="game__roster-name">{p.name}</span>
+                  </div>
+                  <div className="game__roster-field">
+                    <select
+                      key={`${p.id}-${selectValue}-${p.currentCategory}`}
+                      className="game__roster-select"
+                      value={selectValue}
+                      aria-label={`Category for ${p.name}`}
+                      onChange={(e) => {
+                        const v = e.target.value as PlayerId | '__current__'
+                        if (v === '__current__') return
+                        setPlayerCategoryFromPlayer(p.id, v)
+                      }}
+                    >
+                      {showCurrentOption && (
+                        <option value="__current__">
+                          {p.currentCategory.trim() ? p.currentCategory : '—'}
+                        </option>
+                      )}
+                      {players.map((o) => (
                         <option key={o.id} value={o.id}>
-                          {o.name}: {o.initialCategory}
+                          {o.initialCategory}
                         </option>
                       ))}
-                  </select>
-                </label>
-              </li>
-            ))}
+                    </select>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         </aside>
       </div>
