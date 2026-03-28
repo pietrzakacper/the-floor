@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { CellAssignment, GameConfig, Player, PlayerId } from '../types/game'
+import eliminationSfx from '../assets/elimination.mp3'
 import { GameBoardGrid } from './GameBoardGrid'
 import { GridCell } from './GridCell'
 
@@ -33,7 +34,9 @@ export function GameScreen({
 }: Props) {
   const { players } = config
   const [assignSlotIndex, setAssignSlotIndex] = useState<number | null>(null)
+  const [eliminatedPlayer, setEliminatedPlayer] = useState<Player | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
+  const pendingReplaceRef = useRef<{ slot: number; newId: PlayerId } | null>(null)
 
   const byId = useCallback(
     (id: PlayerId) => players.find((p) => p.id === id),
@@ -51,17 +54,61 @@ export function GameScreen({
   const closeModal = useCallback(() => setAssignSlotIndex(null), [])
 
   useEffect(() => {
-    if (assignSlotIndex === null) return
+    if (assignSlotIndex === null || eliminatedPlayer) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeModal()
     }
     window.addEventListener('keydown', onKey)
     modalRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
     return () => window.removeEventListener('keydown', onKey)
-  }, [assignSlotIndex, closeModal])
+  }, [assignSlotIndex, eliminatedPlayer, closeModal])
 
-  const tileOccupant =
-    assignSlotIndex !== null ? byId(assignment[assignSlotIndex]!) : undefined
+  useEffect(() => {
+    if (eliminatedPlayer === null) return
+    let finished = false
+    const complete = () => {
+      if (finished) return
+      finished = true
+      const pending = pendingReplaceRef.current
+      pendingReplaceRef.current = null
+      setEliminatedPlayer(null)
+      if (pending) {
+        assignPlayerToSlot(pending.slot, pending.newId)
+        setAssignSlotIndex(null)
+      }
+    }
+
+    const audio = new Audio(eliminationSfx)
+    const maxWait = window.setTimeout(complete, 4500)
+    const onEnded = () => {
+      window.clearTimeout(maxWait)
+      complete()
+    }
+    audio.addEventListener('ended', onEnded)
+    void audio.play().catch(() => {
+      window.clearTimeout(maxWait)
+      window.setTimeout(complete, 700)
+    })
+
+    return () => {
+      window.clearTimeout(maxWait)
+      audio.removeEventListener('ended', onEnded)
+      audio.pause()
+    }
+  }, [eliminatedPlayer, assignPlayerToSlot])
+
+  const occupantId =
+    assignSlotIndex !== null ? assignment[assignSlotIndex] : undefined
+  const tileOccupant = occupantId ? byId(occupantId) : undefined
+
+  const occupantTileCount = useMemo(() => {
+    if (!occupantId) return 0
+    let n = 0
+    for (const pid of Object.values(assignment)) {
+      if (pid === occupantId) n += 1
+    }
+    return n
+  }, [assignment, occupantId])
 
   const assignChoices =
     assignSlotIndex !== null
@@ -152,14 +199,56 @@ export function GameScreen({
         </aside>
       </div>
 
-      {assignSlotIndex !== null && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) closeModal()
-          }}
-        >
+      {eliminatedPlayer && (
+        <div className="elimination-overlay">
+          <div
+            className="elimination-overlay__card"
+            style={
+              {
+                '--ep-accent': eliminatedPlayer.color,
+              } as CSSProperties
+            }
+          >
+            <svg
+              className="elimination-overlay__cross"
+              viewBox="0 0 100 100"
+              aria-hidden
+              focusable="false"
+            >
+              <title>Elimination cross</title>
+              <line
+                x1="12"
+                y1="12"
+                x2="88"
+                y2="88"
+                stroke="currentColor"
+                strokeWidth="14"
+                strokeLinecap="round"
+              />
+              <line
+                x1="88"
+                y1="12"
+                x2="12"
+                y2="88"
+                stroke="currentColor"
+                strokeWidth="14"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span className="elimination-overlay__name">{eliminatedPlayer.name}</span>
+            <span className="elimination-overlay__category">{eliminatedPlayer.currentCategory}</span>
+          </div>
+        </div>
+      )}
+
+      {assignSlotIndex !== null && !eliminatedPlayer && (
+        <div className="modal-backdrop">
+          <button
+            type="button"
+            className="modal-backdrop__scrim"
+            aria-label="Close dialog"
+            onClick={closeModal}
+          />
           <div
             ref={modalRef}
             className="modal"
@@ -193,8 +282,14 @@ export function GameScreen({
                       } as CSSProperties
                     }
                     onClick={() => {
-                      assignPlayerToSlot(assignSlotIndex, p.id)
-                      closeModal()
+                      if (assignSlotIndex === null) return
+                      if (tileOccupant && occupantTileCount === 1) {
+                        pendingReplaceRef.current = { slot: assignSlotIndex, newId: p.id }
+                        setEliminatedPlayer(tileOccupant)
+                      } else {
+                        assignPlayerToSlot(assignSlotIndex, p.id)
+                        closeModal()
+                      }
                     }}
                   >
                     <span
