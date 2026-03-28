@@ -1,22 +1,28 @@
 import { useLayoutEffect, useState, type RefObject } from 'react'
 
-/** Must match `.game__grid` `column-gap` / `row-gap` in `game-ui.css`. */
+/** Fallbacks if `getComputedStyle` gaps are missing / `normal`. */
 export const GAME_GRID_COL_GAP_PX = 8
 export const GAME_GRID_ROW_GAP_PX = 12
 
+function parseCssPx(value: string, fallback: number): number {
+  if (!value || value === 'normal') return fallback
+  const n = Number.parseFloat(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
 /**
- * Square cell side length (px) so `cols × rows` tiles plus gaps fit inside the container
- * without overflow. Uses min(width-fit, height-fit).
+ * Largest uniform square side (px) so `cols × visibleRowCount` cells plus gaps fit inside
+ * the **grid element’s** content box. Ref must be the `.game__grid` node (the grid container).
  */
 export function useFitSquareCellSize(
-  containerRef: RefObject<HTMLElement | null>,
+  gridElementRef: RefObject<HTMLElement | null>,
   cols: number,
   visibleRowCount: number,
 ): number {
   const [cellPx, setCellPx] = useState(100)
 
   useLayoutEffect(() => {
-    const el = containerRef.current
+    const el = gridElementRef.current
     if (!el) return
 
     const measure = () => {
@@ -28,25 +34,41 @@ export function useFitSquareCellSize(
       const iw = el.clientWidth - pl - pr
       const ih = el.clientHeight - pt - pb
 
+      const colGap = parseCssPx(cs.columnGap, GAME_GRID_COL_GAP_PX)
+      const rowGap = parseCssPx(cs.rowGap, GAME_GRID_ROW_GAP_PX)
+
       if (visibleRowCount <= 0 || cols <= 0) {
         setCellPx(0)
         return
       }
 
-      const maxW =
-        (iw - (cols - 1) * GAME_GRID_COL_GAP_PX) / Math.max(cols, 1)
+      const maxW = (iw - (cols - 1) * colGap) / Math.max(cols, 1)
       const maxH =
-        (ih - (visibleRowCount - 1) * GAME_GRID_ROW_GAP_PX) /
-        Math.max(visibleRowCount, 1)
+        (ih - (visibleRowCount - 1) * rowGap) / Math.max(visibleRowCount, 1)
       const cell = Math.floor(Math.min(maxW, maxH))
       setCellPx(Math.max(1, cell))
     }
 
-    measure()
-    const ro = new ResizeObserver(measure)
+    const scheduleMeasure = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(measure)
+      })
+    }
+
+    scheduleMeasure()
+    const ro = new ResizeObserver(() => scheduleMeasure())
     ro.observe(el)
-    return () => ro.disconnect()
-  }, [cols, visibleRowCount, containerRef])
+    window.addEventListener('resize', scheduleMeasure)
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', scheduleMeasure)
+    vv?.addEventListener('scroll', scheduleMeasure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', scheduleMeasure)
+      vv?.removeEventListener('resize', scheduleMeasure)
+      vv?.removeEventListener('scroll', scheduleMeasure)
+    }
+  }, [cols, visibleRowCount, gridElementRef])
 
   return cellPx
 }

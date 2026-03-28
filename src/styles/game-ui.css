@@ -432,10 +432,91 @@
 
 /* Game layout */
 .game {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.game--intro {
+  position: relative;
+}
+
+.game__body--intro {
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Intro: full-width column below header (no roster); fills #root height like the game shell. */
+@media (min-width: 900px) {
+  .game--intro .game__body--intro {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.game__grid-wrap--intro {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.intro__start-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 50;
+  font: inherit;
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 12px 28px;
+  border-radius: 10px;
+  border: 2px solid #6ee7ff;
+  background: linear-gradient(160deg, #1a2a33, #0d1820);
+  color: #e8fdff;
+  cursor: pointer;
+  box-shadow:
+    0 0 20px rgba(110, 231, 255, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: filter 0.12s ease, box-shadow 0.12s ease;
+}
+
+.intro__start-btn:hover {
+  filter: brightness(1.12);
+}
+
+.intro__start-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.grid-cell--intro-hidden {
+  cursor: default;
+  pointer-events: none;
+  background: linear-gradient(155deg, #141418 0%, #0a0a0c 100%);
+  border-style: solid;
+  border-color: #2d2d36;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.grid-cell__name--intro-hidden {
+  font-size: clamp(1.1rem, 3.5vw, 1.75rem);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.22);
+  text-shadow: none;
+}
+
+.grid-cell__category--intro-hidden {
+  visibility: hidden;
+  height: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
   overflow: hidden;
 }
 
@@ -445,6 +526,10 @@
   gap: 16px;
   padding: 8px 0 12px;
   flex-shrink: 0;
+}
+
+.game__top--intro {
+  justify-content: center;
 }
 
 .game__btn-back {
@@ -468,7 +553,7 @@
 }
 
 .game__body {
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -482,8 +567,9 @@
   }
 
   .game__grid-wrap {
-    flex: 1;
+    flex: 1 1 0;
     min-width: 0;
+    min-height: 0;
   }
 
   .game__roster {
@@ -493,7 +579,7 @@
 }
 
 .game__grid-wrap {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   padding: 4px 0 8px;
   display: flex;
@@ -502,15 +588,14 @@
   align-items: stretch;
 }
 
-/* Gap values are duplicated in useFitSquareCellSize.ts for cell-size math */
+/* Gaps are read from computed style in useFitSquareCellSize (fallbacks in that file). */
 .game__grid {
   display: grid;
   column-gap: 8px;
   row-gap: 12px;
   width: 100%;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
-  height: 100%;
   justify-content: center;
   align-content: center;
   align-items: center;
@@ -653,15 +738,15 @@
   box-shadow: none;
 }
 
-/* Roster */
+/* Roster — do not share flex-grow with the board; leave most vertical space for tiles */
 .game__roster {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
-  max-height: 42%;
+  max-height: min(30svh, 260px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-color: #404040 #111;

@@ -27,4 +27,4 @@ export type GameConfig = {
 /** Playable slot index -> playerId (same player may appear on multiple tiles, or on none) */
 export type CellAssignment = Record<number, PlayerId>
 
-export type GamePhase = 'lobby' | 'game'
+export type GamePhase = 'lobby' | 'intro' | 'game'

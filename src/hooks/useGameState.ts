@@ -26,7 +26,7 @@ function newDraft(): LobbyPlayerDraft {
 }
 
 export function useGameState() {
-  const [phase, setPhase] = useLocalState<'lobby' | 'game'>(LS.phase, 'lobby')
+  const [phase, setPhase] = useLocalState<'lobby' | 'intro' | 'game'>(LS.phase, 'lobby')
   const [drafts, setDrafts] = useLocalState<LobbyPlayerDraft[]>(LS.drafts, () => [
     newDraft(),
     newDraft(),
@@ -40,7 +40,7 @@ export function useGameState() {
   const [boardChoicesLoading, setBoardChoicesLoading] = useState(true)
 
   useEffect(() => {
-    if (phase === 'game' && !gameConfig) {
+    if ((phase === 'game' || phase === 'intro') && !gameConfig) {
       setPhase('lobby')
       setAssignment({})
     }
@@ -117,8 +117,12 @@ export function useGameState() {
       players,
     })
     setAssignment(assign)
-    setPhase('game')
+    setPhase('intro')
   }, [boardChoices, boardChoicesLoading, drafts, effectiveBoardId, playerCount])
+
+  const finishIntro = useCallback(() => {
+    setPhase('game')
+  }, [setPhase])
 
   const backToLobby = useCallback(() => {
     setPhase('lobby')
@@ -163,6 +167,7 @@ export function useGameState() {
     removePlayer,
     updateDraft,
     startGame,
+    finishIntro,
     backToLobby,
     gameConfig,
     assignment,

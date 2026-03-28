@@ -1,6 +1,7 @@
 import { useGameState } from './hooks/useGameState'
-import { LobbyScreen } from './components/LobbyScreen'
 import { GameScreen } from './components/GameScreen'
+import { IntroScreen } from './components/IntroScreen'
+import { LobbyScreen } from './components/LobbyScreen'
 import './styles/game-ui.css'
 
 function App() {
@@ -21,7 +22,14 @@ function App() {
     assignment,
     assignPlayerToSlot,
     setPlayerCategoryFromPlayer,
+    finishIntro,
   } = useGameState()
+
+  if (phase === 'intro' && gameConfig) {
+    return (
+      <IntroScreen config={gameConfig} assignment={assignment} onStart={finishIntro} />
+    )
+  }
 
   if (phase === 'game' && gameConfig) {
     return (
