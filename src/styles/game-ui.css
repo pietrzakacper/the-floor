@@ -249,6 +249,24 @@
   background: transparent;
 }
 
+.lobby__btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+
+.lobby__btn--icon .lobby__icon-bin {
+  display: block;
+  color: var(--text-muted);
+}
+
+.lobby__btn--icon:not(:disabled):hover .lobby__icon-bin {
+  color: #ff6b6b;
+}
+
 .lobby__footer {
   flex-shrink: 0;
   margin-top: 4px;
@@ -354,6 +372,64 @@
   line-height: 1.25;
 }
 
+@keyframes lobby-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.lobby__board-skeleton .lobby__board-skeleton-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  background: #0c0c0c;
+  animation: lobby-skeleton-pulse 1.25s ease-in-out infinite;
+}
+
+.lobby__board-skeleton .lobby__board-skeleton-row:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.lobby__board-skeleton .lobby__board-skeleton-row:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.lobby__board-skeleton-preview {
+  width: 52px;
+  height: 52px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #2a2a2a, #1a1a1a);
+  flex-shrink: 0;
+}
+
+.lobby__board-skeleton-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 100px;
+}
+
+.lobby__board-skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: #2e2e2e;
+  width: 100%;
+}
+
+.lobby__board-skeleton-line--short {
+  width: 55%;
+}
+
 /* Game layout */
 .game {
   flex: 1;
@@ -422,18 +498,40 @@
   padding: 4px 0 8px;
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
 }
 
+/* Gap values are duplicated in useFitSquareCellSize.ts for cell-size math */
 .game__grid {
   display: grid;
-  gap: 12px;
+  column-gap: 8px;
+  row-gap: 12px;
   width: 100%;
   flex: 1;
   min-height: 0;
   height: 100%;
+  justify-content: center;
+  align-content: center;
+  align-items: center;
+  justify-items: center;
+  overflow: hidden;
+  isolation: isolate;
 }
 
-/* Grid cells — neon glow */
+.game__grid .grid-cell,
+.game__grid .grid-cell--hole {
+  width: var(--cell-size, 64px);
+  height: var(--cell-size, 64px);
+  max-width: var(--cell-size, 64px);
+  max-height: var(--cell-size, 64px);
+  box-sizing: border-box;
+  aspect-ratio: unset;
+  align-self: center;
+  justify-self: center;
+}
+
+/* Grid cells — square tiles, player color fill + neon edge (no scale — avoids overlap) */
 .grid-cell {
   --cell-accent: #fff;
   appearance: none;
@@ -444,50 +542,115 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 12px 8px;
-  border: 2px solid var(--cell-accent);
+  gap: 4px;
+  padding: 8px 6px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  align-self: start;
+  justify-self: stretch;
+  margin: 0;
+  position: relative;
+  z-index: 0;
+  border: 2px solid color-mix(in srgb, var(--cell-accent) 85%, #fff 15%);
   border-radius: 10px;
-  background: linear-gradient(145deg, rgba(20, 20, 20, 0.95), rgba(8, 8, 8, 0.98));
-  color: var(--text);
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--cell-accent) 92%, #fff 8%) 0%,
+    var(--cell-accent) 42%,
+    color-mix(in srgb, var(--cell-accent) 82%, #000 18%) 100%
+  );
+  color: #fff;
   box-shadow:
-    0 0 20px color-mix(in srgb, var(--cell-accent) 45%, transparent),
-    0 0 40px color-mix(in srgb, var(--cell-accent) 20%, transparent),
-    inset 0 0 24px color-mix(in srgb, var(--cell-accent) 12%, transparent);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+    0 0 12px color-mix(in srgb, var(--cell-accent) 45%, transparent),
+    0 0 24px color-mix(in srgb, var(--cell-accent) 22%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--cell-accent) 40%, transparent);
+  transition: box-shadow 0.12s ease, filter 0.12s ease, border-color 0.12s ease;
 }
 
 .grid-cell:hover {
-  transform: scale(1.02);
+  filter: brightness(1.08);
   box-shadow:
-    0 0 28px color-mix(in srgb, var(--cell-accent) 55%, transparent),
-    0 0 56px color-mix(in srgb, var(--cell-accent) 28%, transparent),
-    inset 0 0 28px color-mix(in srgb, var(--cell-accent) 18%, transparent);
+    0 0 16px color-mix(in srgb, var(--cell-accent) 55%, transparent),
+    0 0 28px color-mix(in srgb, var(--cell-accent) 30%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--cell-accent) 55%, transparent);
 }
 
 .grid-cell:focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 3px;
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  z-index: 1;
+}
+
+.grid-cell--vacant {
+  cursor: pointer;
+  background: linear-gradient(155deg, #1c1c22 0%, #111113 100%);
+  border-style: dashed;
+  border-color: #45454f;
+  box-shadow:
+    0 0 8px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.grid-cell--vacant:hover {
+  border-color: color-mix(in srgb, var(--cell-accent) 55%, #fff 45%);
+  filter: brightness(1.1);
+}
+
+.grid-cell__name--vacant,
+.grid-cell__category--vacant {
+  color: rgba(255, 255, 255, 0.42);
+  text-shadow: none;
 }
 
 .grid-cell__name {
   font-weight: 700;
-  font-size: clamp(0.85rem, 2vw, 1.05rem);
-  text-shadow: 0 0 12px color-mix(in srgb, var(--cell-accent) 40%, transparent);
+  font-size: clamp(0.7rem, min(2.8vw, 2.8vh), 1rem);
+  line-height: 1.15;
+  width: 100%;
+  text-shadow:
+    0 0 8px rgba(0, 0, 0, 0.65),
+    0 1px 3px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .grid-cell__category {
-  font-size: clamp(0.7rem, 1.5vw, 0.85rem);
-  color: var(--text-muted);
+  font-size: clamp(0.6rem, min(2.2vw, 2.2vh), 0.8rem);
   line-height: 1.2;
+  width: 100%;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow:
+    0 0 6px rgba(0, 0, 0, 0.7),
+    0 1px 2px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .grid-cell--hole {
   pointer-events: none;
+  box-sizing: border-box;
   border-radius: 10px;
   background: #030303;
   border: 1px dashed #1f1f1f;
-  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  align-self: start;
+  justify-self: stretch;
+  margin: 0;
+  box-shadow: none;
 }
 
 /* Roster */

@@ -1,11 +1,21 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { BoardConfiguration } from '../lib/layout'
 import type { CellAssignment, GameConfig, LobbyPlayerDraft, PlayerId } from '../types/game'
 import {
   buildRandomAssignment,
   canStartGame,
-  getBoardConfigurationChoices,
+  getBoardConfigurationChoicesAsync,
   lobbyDraftsToPlayers,
 } from '../lib/layout'
+import { useLocalState } from './useLocalState'
+
+const LS = {
+  phase: 'the-floor.phase',
+  drafts: 'the-floor.drafts',
+  selectedBoardId: 'the-floor.selectedBoardId',
+  gameConfig: 'the-floor.gameConfig',
+  assignment: 'the-floor.assignment',
+} as const
 
 function newDraft(): LobbyPlayerDraft {
   return {
@@ -16,22 +26,57 @@ function newDraft(): LobbyPlayerDraft {
 }
 
 export function useGameState() {
-  const [phase, setPhase] = useState<'lobby' | 'game'>('lobby')
-  const [drafts, setDrafts] = useState<LobbyPlayerDraft[]>(() => [
+  const [phase, setPhase] = useLocalState<'lobby' | 'game'>(LS.phase, 'lobby')
+  const [drafts, setDrafts] = useLocalState<LobbyPlayerDraft[]>(LS.drafts, () => [
     newDraft(),
     newDraft(),
     newDraft(),
     newDraft(),
   ])
-  const [selectedBoardId, setSelectedBoardId] = useState('')
-  const [gameConfig, setGameConfig] = useState<GameConfig | null>(null)
-  const [assignment, setAssignment] = useState<CellAssignment>({})
+  const [selectedBoardId, setSelectedBoardId] = useLocalState(LS.selectedBoardId, '')
+  const [gameConfig, setGameConfig] = useLocalState<GameConfig | null>(LS.gameConfig, null)
+  const [assignment, setAssignment] = useLocalState<CellAssignment>(LS.assignment, {})
+  const [boardChoices, setBoardChoices] = useState<BoardConfiguration[]>([])
+  const [boardChoicesLoading, setBoardChoicesLoading] = useState(true)
+
+  useEffect(() => {
+    if (phase === 'game' && !gameConfig) {
+      setPhase('lobby')
+      setAssignment({})
+    }
+  }, [phase, gameConfig, setPhase, setAssignment])
 
   const playerCount = drafts.length
-  const boardChoices = useMemo(
-    () => getBoardConfigurationChoices(playerCount),
-    [playerCount],
-  )
+
+  useEffect(() => {
+    const ac = new AbortController()
+    const rafId = requestAnimationFrame(() => {
+      if (ac.signal.aborted) return
+      setBoardChoicesLoading(true)
+      setBoardChoices([])
+
+      void getBoardConfigurationChoicesAsync(playerCount, ac.signal)
+        .then((choices) => {
+          if (ac.signal.aborted) return
+          setBoardChoices(choices)
+        })
+        .catch(() => {
+          if (!ac.signal.aborted) {
+            setBoardChoices([])
+          }
+        })
+        .finally(() => {
+          if (!ac.signal.aborted) {
+            setBoardChoicesLoading(false)
+          }
+        })
+    })
+
+    return () => {
+      ac.abort()
+      cancelAnimationFrame(rafId)
+    }
+  }, [playerCount])
 
   const effectiveBoardId = useMemo(() => {
     if (boardChoices.length === 0) return ''
@@ -40,7 +85,9 @@ export function useGameState() {
       : boardChoices[0]!.id
   }, [boardChoices, selectedBoardId])
 
-  const startAllowed = canStartGame(playerCount, boardChoices, effectiveBoardId)
+  const startAllowed =
+    !boardChoicesLoading &&
+    canStartGame(playerCount, boardChoices, effectiveBoardId)
 
   const addPlayer = useCallback(() => {
     setDrafts((d) => [...d, newDraft()])
@@ -58,6 +105,7 @@ export function useGameState() {
   )
 
   const startGame = useCallback(() => {
+    if (boardChoicesLoading) return
     const board = boardChoices.find((b) => b.id === effectiveBoardId)
     if (!canStartGame(playerCount, boardChoices, effectiveBoardId) || !board) return
     const players = lobbyDraftsToPlayers(drafts)
@@ -70,7 +118,7 @@ export function useGameState() {
     })
     setAssignment(assign)
     setPhase('game')
-  }, [boardChoices, drafts, effectiveBoardId, playerCount])
+  }, [boardChoices, boardChoicesLoading, drafts, effectiveBoardId, playerCount])
 
   const backToLobby = useCallback(() => {
     setPhase('lobby')
@@ -78,19 +126,10 @@ export function useGameState() {
     setAssignment({})
   }, [])
 
-  const swapCellsForPlayers = useCallback(
-    (slotIndex: number, otherPlayerId: PlayerId) => {
-      setAssignment((prev) => {
-        const a = prev[slotIndex]
-        if (a === undefined) return prev
-        const otherSlot = Object.keys(prev).find((k) => prev[Number(k)] === otherPlayerId)
-        if (otherSlot === undefined) return prev
-        const j = Number(otherSlot)
-        return { ...prev, [slotIndex]: otherPlayerId, [j]: a }
-      })
-    },
-    [],
-  )
+  /** Set this tile to show `playerId`. Other tiles are unchanged; a player may occupy many tiles or none. */
+  const assignPlayerToSlot = useCallback((slotIndex: number, playerId: PlayerId) => {
+    setAssignment((prev) => ({ ...prev, [slotIndex]: playerId }))
+  }, [])
 
   const setPlayerCategoryFromInitial = useCallback(
     (playerId: PlayerId, sourceInitialCategory: string) => {
@@ -111,6 +150,7 @@ export function useGameState() {
     phase,
     drafts,
     boardChoices,
+    boardChoicesLoading,
     effectiveBoardId,
     setSelectedBoardId,
     startAllowed,
@@ -121,7 +161,7 @@ export function useGameState() {
     backToLobby,
     gameConfig,
     assignment,
-    swapCellsForPlayers,
+    assignPlayerToSlot,
     setPlayerCategoryFromInitial,
     playerCount,
   }

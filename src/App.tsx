@@ -8,6 +8,7 @@ function App() {
     phase,
     drafts,
     boardChoices,
+    boardChoicesLoading,
     effectiveBoardId,
     setSelectedBoardId,
     startAllowed,
@@ -18,7 +19,7 @@ function App() {
     backToLobby,
     gameConfig,
     assignment,
-    swapCellsForPlayers,
+    assignPlayerToSlot,
     setPlayerCategoryFromInitial,
   } = useGameState()
 
@@ -28,7 +29,7 @@ function App() {
         config={gameConfig}
         assignment={assignment}
         onBack={backToLobby}
-        swapCellsForPlayers={swapCellsForPlayers}
+        assignPlayerToSlot={assignPlayerToSlot}
         setPlayerCategoryFromInitial={setPlayerCategoryFromInitial}
       />
     )
@@ -38,6 +39,7 @@ function App() {
     <LobbyScreen
       drafts={drafts}
       boardChoices={boardChoices}
+      boardChoicesLoading={boardChoicesLoading}
       selectedBoardId={effectiveBoardId}
       onSelectBoard={setSelectedBoardId}
       startAllowed={startAllowed}

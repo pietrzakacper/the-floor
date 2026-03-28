@@ -3,7 +3,15 @@ import { colorForPlayerIndex } from './colors'
 
 const MIN_PLAYERS = 4
 const MIN_NEIGHBORS = 2
-const DFS_STEP_LIMIT = 350_000
+/** When DFS fallback is used (huge combination count), cap visits. */
+const DFS_STEP_LIMIT = 900_000
+/** Max combinations to enumerate exhaustively (then we yield periodically). */
+const MAX_EXHAUSTIVE_COMBINATIONS = 280_000
+/** If minimal square yields nothing valid, try s+1 … up to this many extra rows/cols. */
+const MAX_SQUARE_EXPANSION = 6
+
+/** DFS / combination steps between yields to the main thread (requestAnimationFrame). */
+export const GRID_COMPUTE_YIELD_EVERY = 2048
 
 export type BoardConfiguration = {
   id: string
@@ -43,92 +51,258 @@ function minEdgeNeighborsInSet(set: Set<string>): number {
   return min
 }
 
-function normalizeSignature(set: Set<string>): string {
-  const coords = [...set].map(parseKey)
-  const minR = Math.min(...coords.map(([r]) => r))
-  const minC = Math.min(...coords.map(([, c]) => c))
-  const norm = coords
-    .map(([r, c]) => [r - minR, c - minC] as [number, number])
-    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
-  return norm.map(([r, c]) => `${r},${c}`).join('|')
+function shortHash(sig: string): string {
+  let h = 0
+  for (let i = 0; i < sig.length; i++) {
+    h = (h * 31 + sig.charCodeAt(i)) | 0
+  }
+  return Math.abs(h).toString(36)
 }
 
-function signatureToBoard(sig: string, idSuffix: string): BoardConfiguration {
-  const pairs = sig.split('|').map((s) => {
-    const [r, c] = s.split(',').map(Number)
-    return [r!, c!] as [number, number]
+/** Smallest s with s*s >= n (square that can hold n tiles). */
+export function minimalSquareSide(n: number): number {
+  return Math.ceil(Math.sqrt(n))
+}
+
+function countBinomialCapped(n: number, k: number, cap: number): number | null {
+  k = Math.min(k, n - k)
+  if (k < 0) return 0
+  let c = 1
+  for (let i = 1; i <= k; i++) {
+    c = Math.round((c * (n - i + 1)) / i)
+    if (c > cap) return null
+  }
+  return c
+}
+
+function firstCombination(k: number): number[] {
+  return Array.from({ length: k }, (_, i) => i)
+}
+
+function nextCombination(combo: number[], universe: number): boolean {
+  const k = combo.length
+  let i = k - 1
+  while (i >= 0 && combo[i] === universe - k + i) i--
+  if (i < 0) return false
+  combo[i]++
+  for (let j = i + 1; j < k; j++) combo[j] = combo[j - 1] + 1
+  return true
+}
+
+function isConnectedFlats(flats: number[], s: number): boolean {
+  const set = new Set(flats)
+  const start = flats[0]!
+  const stack = [start]
+  const seen = new Set([start])
+  while (stack.length) {
+    const f = stack.pop()!
+    const r = Math.floor(f / s)
+    const c = f % s
+    const cand: number[] = []
+    if (r > 0) cand.push(f - s)
+    if (r < s - 1) cand.push(f + s)
+    if (c > 0) cand.push(f - 1)
+    if (c < s - 1) cand.push(f + 1)
+    for (const nf of cand) {
+      if (!set.has(nf) || seen.has(nf)) continue
+      seen.add(nf)
+      stack.push(nf)
+    }
+  }
+  return seen.size === flats.length
+}
+
+function minDegreeFlats(flats: number[], s: number): number {
+  const set = new Set(flats)
+  let min = Infinity
+  for (const f of flats) {
+    const r = Math.floor(f / s)
+    const c = f % s
+    let d = 0
+    if (r > 0 && set.has(f - s)) d++
+    if (r < s - 1 && set.has(f + s)) d++
+    if (c > 0 && set.has(f - 1)) d++
+    if (c < s - 1 && set.has(f + 1)) d++
+    min = Math.min(min, d)
+  }
+  return min
+}
+
+function boardFromSortedFlats(flatsSorted: number[], s: number): BoardConfiguration {
+  const n = flatsSorted.length
+  const isFull = n === s * s
+  const idKey = flatsSorted.join(',')
+  return {
+    id: `board-s${s}-${shortHash(idKey)}`,
+    label: isFull ? `${s} × ${s} (all tiles)` : `${s} × ${s} box · ${n} tiles`,
+    rows: s,
+    cols: s,
+    cellIndices: [...flatsSorted],
+  }
+}
+
+/** Sum over tiles of in-shape 4-neighbor counts. */
+function totalInShapeNeighborSum(board: BoardConfiguration): number {
+  const { rows, cols, cellIndices } = board
+  const occ = new Set(cellIndices)
+  let sum = 0
+  for (const flat of cellIndices) {
+    const r = Math.floor(flat / cols)
+    const c = flat % cols
+    if (r > 0 && occ.has(flat - cols)) sum++
+    if (r < rows - 1 && occ.has(flat + cols)) sum++
+    if (c > 0 && occ.has(flat - 1)) sum++
+    if (c < cols - 1 && occ.has(flat + 1)) sum++
+  }
+  return sum
+}
+
+function boundingBoxAspectRatio(board: BoardConfiguration): number {
+  const { rows: r, cols: c } = board
+  return Math.max(r, c) / Math.min(r, c)
+}
+
+function isFullBoundingRectangle(board: BoardConfiguration): boolean {
+  return board.cellIndices.length === board.rows * board.cols
+}
+
+function compareBoardsByNeighborObjective(a: BoardConfiguration, b: BoardConfiguration): number {
+  const aSum = totalInShapeNeighborSum(a)
+  const bSum = totalInShapeNeighborSum(b)
+  if (bSum !== aSum) return bSum - aSum
+
+  const aAsp = boundingBoxAspectRatio(a)
+  const bAsp = boundingBoxAspectRatio(b)
+  if (aAsp !== bAsp) return aAsp - bAsp
+
+  const aFull = isFullBoundingRectangle(a) ? 0 : 1
+  const bFull = isFullBoundingRectangle(b) ? 0 : 1
+  if (aFull !== bFull) return aFull - bFull
+
+  const aArea = a.rows * a.cols
+  const bArea = b.rows * b.cols
+  if (aArea !== bArea) return aArea - bArea
+
+  return a.id.localeCompare(b.id)
+}
+
+const MAX_BOARD_CHOICES = 3
+
+function finalizeBoardChoices(bySig: Map<string, BoardConfiguration>): BoardConfiguration[] {
+  const unique = [...bySig.values()]
+  unique.sort(compareBoardsByNeighborObjective)
+  return unique.slice(0, MAX_BOARD_CHOICES)
+}
+
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve())
   })
-  const maxR = Math.max(...pairs.map(([r]) => r))
-  const maxC = Math.max(...pairs.map(([, c]) => c))
-  const rows = maxR + 1
-  const cols = maxC + 1
-  const occupied = new Set(pairs.map(([r, c]) => key(r, c)))
-  const cellIndices: number[] = []
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (occupied.has(key(r, c))) {
-        cellIndices.push(r * cols + c)
+}
+
+/**
+ * Enumerate all n-subsets (or hole-subsets) inside s×s when combination count is small enough.
+ */
+async function exhaustiveEnumerateInSquare(
+  s: number,
+  n: number,
+  bySig: Map<string, BoardConfiguration>,
+  signal: AbortSignal | undefined,
+  yieldEvery: number,
+): Promise<void> {
+  const T = s * s
+  const useHoles = T - n < n
+  const k = useHoles ? T - n : n
+  let iterations = 0
+
+  const processFlats = (flats: number[]) => {
+    if (flats.length !== n) return
+    flats.sort((a, b) => a - b)
+    if (!isConnectedFlats(flats, s)) return
+    if (minDegreeFlats(flats, s) < MIN_NEIGHBORS) return
+    const sig = flats.join(',')
+    if (bySig.has(sig)) return
+    bySig.set(sig, boardFromSortedFlats(flats, s))
+  }
+
+  if (k === 0) {
+    if (useHoles) {
+      const flats = Array.from({ length: T }, (_, i) => i)
+      processFlats(flats)
+    }
+    return
+  }
+
+  const combo = firstCombination(k)
+
+  do {
+    if (signal?.aborted) return
+    iterations++
+    if (iterations % yieldEvery === 0) {
+      await yieldToMain()
+      if (signal?.aborted) return
+    }
+
+    if (useHoles) {
+      const holeSet = new Set(combo)
+      const flats: number[] = []
+      for (let i = 0; i < T; i++) {
+        if (!holeSet.has(i)) flats.push(i)
       }
+      processFlats(flats)
+    } else {
+      processFlats([...combo])
     }
-  }
-  const isFullRect = cellIndices.length === rows * cols
-  const label = isFullRect
-    ? `${rows} × ${cols} rectangle`
-    : `${rows} × ${cols} box · ${cellIndices.length} tiles`
-  return {
-    id: `board-${idSuffix}`,
-    label,
-    rows,
-    cols,
-    cellIndices,
-  }
+  } while (nextCombination(combo, T))
 }
 
-function rectKeySet(r: number, c: number): Set<string> {
-  const s = new Set<string>()
-  for (let row = 0; row < r; row++) {
-    for (let col = 0; col < c; col++) {
-      s.add(key(row, col))
-    }
-  }
-  return s
-}
-
-function rectangleBoard(r: number, c: number): BoardConfiguration {
-  const cellIndices: number[] = []
-  for (let row = 0; row < r; row++) {
-    for (let col = 0; col < c; col++) {
-      cellIndices.push(row * c + col)
-    }
-  }
-  return {
-    id: `board-rect-${r}x${c}`,
-    label: `${r} × ${c} rectangle`,
-    rows: r,
-    cols: c,
-    cellIndices,
-  }
-}
-
-function enumeratePolyominoSignatures(n: number): Set<string> {
-  const signatures = new Set<string>()
+/**
+ * DFS polyominoes of size n confined to [0,s)²; dedupe by sorted flat list.
+ */
+async function dfsEnumerateInSquare(
+  s: number,
+  n: number,
+  bySig: Map<string, BoardConfiguration>,
+  signal: AbortSignal | undefined,
+  yieldEvery: number,
+): Promise<void> {
   let steps = 0
+  const T = s * s
 
-  function dfs(set: Set<string>): void {
+  async function dfs(set: Set<string>): Promise<void> {
+    if (signal?.aborted) return
     steps++
+    if (steps % yieldEvery === 0) {
+      await yieldToMain()
+      if (signal?.aborted) return
+    }
     if (steps > DFS_STEP_LIMIT) return
+
     if (set.size === n) {
       if (minEdgeNeighborsInSet(set) >= MIN_NEIGHBORS) {
-        signatures.add(normalizeSignature(set))
+        const flats = [...set]
+          .map((k) => {
+            const [r, c] = parseKey(k)
+            return r * s + c
+          })
+          .sort((a, b) => a - b)
+        const sig = flats.join(',')
+        if (!bySig.has(sig)) {
+          bySig.set(sig, boardFromSortedFlats(flats, s))
+        }
       }
       return
     }
+
     const frontier: string[] = []
     const seen = new Set<string>()
     for (const k of set) {
       const [r, c] = parseKey(k)
       for (const [dr, dc] of DIRS) {
-        const nk = key(r + dr, c + dc)
+        const nr = r + dr
+        const nc = c + dc
+        if (nr < 0 || nr >= s || nc < 0 || nc >= s) continue
+        const nk = key(nr, nc)
         if (!set.has(nk) && !seen.has(nk)) {
           seen.add(nk)
           frontier.push(nk)
@@ -138,88 +312,67 @@ function enumeratePolyominoSignatures(n: number): Set<string> {
     frontier.sort()
     for (const nk of frontier) {
       set.add(nk)
-      dfs(set)
+      await dfs(set)
       set.delete(nk)
     }
   }
 
-  dfs(new Set([key(0, 0)]))
-  return signatures
+  for (let flat = 0; flat < T; flat++) {
+    if (signal?.aborted) return
+    const r = Math.floor(flat / s)
+    const c = flat % s
+    await dfs(new Set([key(r, c)]))
+  }
 }
 
-function shortHash(sig: string): string {
-  let h = 0
-  for (let i = 0; i < sig.length; i++) {
-    h = (h * 31 + sig.charCodeAt(i)) | 0
+async function collectBoardsForSquareSide(
+  s: number,
+  n: number,
+  bySig: Map<string, BoardConfiguration>,
+  signal: AbortSignal | undefined,
+  yieldEvery: number,
+): Promise<void> {
+  const T = s * s
+  if (T < n) return
+
+  const kChoose = Math.min(n, T - n)
+  const binom = countBinomialCapped(T, kChoose, MAX_EXHAUSTIVE_COMBINATIONS + 1)
+
+  if (binom !== null && binom <= MAX_EXHAUSTIVE_COMBINATIONS) {
+    await exhaustiveEnumerateInSquare(s, n, bySig, signal, yieldEvery)
+  } else {
+    await dfsEnumerateInSquare(s, n, bySig, signal, yieldEvery)
   }
-  return Math.abs(h).toString(36)
 }
 
-function pickDiverseThree(boards: BoardConfiguration[]): BoardConfiguration[] {
-  if (boards.length <= 3) return boards
-  const scored = boards.map((b) => ({
-    b,
-    ratio: b.rows / Math.max(1, b.cols),
-    area: b.rows * b.cols,
-  }))
-  scored.sort((a, b) => a.ratio - b.ratio)
-  const k = scored.length
-  const idxs = [0, Math.floor(k / 3), Math.floor((2 * k) / 3)]
-  const picked: BoardConfiguration[] = []
-  const seen = new Set<string>()
-  for (const i of idxs) {
-    const b = scored[i]!.b
-    if (!seen.has(b.id)) {
-      seen.add(b.id)
-      picked.push(b)
-    }
-  }
-  let x = 0
-  while (picked.length < 3 && x < k) {
-    const b = scored[x]!.b
-    if (!seen.has(b.id)) {
-      seen.add(b.id)
-      picked.push(b)
-    }
-    x++
-  }
-  return picked.slice(0, 3)
-}
-
-/** All valid boards for n cells (min 2 edge neighbors each), then up to 3 diverse picks */
-export function getBoardConfigurationChoices(n: number): BoardConfiguration[] {
+/**
+ * Valid boards live in the smallest square s×s with s = ceil(sqrt(n)), then s+1… if needed.
+ * All connected layouts with ≥2 edge neighbors per tile are considered; top picks maximize
+ * total in-shape neighbor count. Uses exhaustive combinations when tractable, else bounded DFS.
+ */
+export async function getBoardConfigurationChoicesAsync(
+  n: number,
+  signal?: AbortSignal,
+  yieldEvery: number = GRID_COMPUTE_YIELD_EVERY,
+): Promise<BoardConfiguration[]> {
   if (n < MIN_PLAYERS) return []
 
+  await yieldToMain()
+  if (signal?.aborted) return []
+
   const bySig = new Map<string, BoardConfiguration>()
+  const s0 = minimalSquareSide(n)
 
-  for (let r = 2; r * r <= n; r++) {
-    if (n % r !== 0) continue
-    const c = n / r
-    if (c < 2) continue
-    const b1 = rectangleBoard(r, c)
-    bySig.set(normalizeSignature(rectKeySet(r, c)), b1)
-    if (r !== c) {
-      const b2 = rectangleBoard(c, r)
-      bySig.set(normalizeSignature(rectKeySet(c, r)), b2)
-    }
+  for (let delta = 0; delta <= MAX_SQUARE_EXPANSION; delta++) {
+    const s = s0 + delta
+    await yieldToMain()
+    if (signal?.aborted) return []
+
+    await collectBoardsForSquareSide(s, n, bySig, signal, yieldEvery)
+    if (bySig.size > 0) break
   }
 
-  for (const sig of enumeratePolyominoSignatures(n)) {
-    if (sig.split('|').length !== n) continue
-    if (bySig.has(sig)) continue
-    const board = signatureToBoard(sig, `poly-${shortHash(sig)}`)
-    if (board.cellIndices.length === n) bySig.set(sig, board)
-  }
-
-  const unique = [...bySig.values()]
-  const withRectsFirst = unique.sort((a, b) => {
-    const aFull = a.cellIndices.length === a.rows * a.cols ? 0 : 1
-    const bFull = b.cellIndices.length === b.rows * b.cols ? 0 : 1
-    if (aFull !== bFull) return aFull - bFull
-    return a.rows * a.cols - b.rows * b.cols
-  })
-
-  return pickDiverseThree(withRectsFirst)
+  return finalizeBoardChoices(bySig)
 }
 
 export function canStartGame(playerCount: number, choices: BoardConfiguration[], selectedId: string): boolean {
